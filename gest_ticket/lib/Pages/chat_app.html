@@ -1,0 +1,141 @@
+
+
+
+//////////////////// 
+///
+///
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gest_ticket/Modeles/user.dart';
+import 'package:gest_ticket/Pages/apprenant.dart';
+import 'package:gest_ticket/Pages/msg.dart';
+
+class ChatApp extends StatelessWidget {
+  // Méthode pour récupérer les utilisateurs avec qui on a discuté
+  Stream<List<UserModel>> getUsersWithConversations(String currentUserId) {
+    return FirebaseFirestore.instance
+        .collection('conversations')
+        .where('participants', arrayContains: currentUserId)
+        .snapshots()
+        .asyncMap((snapshot) async {
+          // Récupérer les IDs des autres participants
+          final userIds = snapshot.docs
+              .expand((doc) => (doc.data() as Map<String, dynamic>)['participants'] as List<dynamic>)
+              .where((id) => id != currentUserId)
+              .toSet();
+
+          // Récupérer les détails des utilisateurs
+          final userDocs = await Future.wait(userIds.map((id) => FirebaseFirestore.instance
+              .collection('users')
+              .doc(id)
+              .get()));
+
+          return userDocs
+              .map((doc) => UserModel.fromFirestore(doc.data()!, doc.id))
+              .toList();
+        });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Récupérer l'ID de l'utilisateur courant
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
+    if (currentUserId == null) {
+      return Scaffold(
+        body: Center(child: Text('Utilisateur non authentifié.')),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Inbox"),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pop(context);
+          },
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              // Action de recherche
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: ElevatedButton(
+              onPressed: () {
+                // Action du bouton "Chat"
+              },
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: const Text("Chat"),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<UserModel>>(
+              stream: getUsersWithConversations(currentUserId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const Center(child: Text('Aucune conversation trouvée.'));
+                }
+
+                final users = snapshot.data!;
+
+                return ListView.builder(
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final user = users[index];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundImage: NetworkImage(user.photoURL), // Affiche l'image de l'utilisateur
+                      ),
+                      title: Text('${user.prenom} ${user.nom}'),
+                      subtitle: Text(user.email),
+                      trailing: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            user.derniereConnexion
+                                .toLocal()
+                                .toString()
+                                .split(' ')[1], // Affiche l'heure de dernière connexion
+                          ),
+                        ],
+                      ),
+                      onTap: () {
+                        // Action lorsque le nom est cliqué
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MessagePage(
+                              conversationId: user.id, // Passe l'ID de l'utilisateur
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
